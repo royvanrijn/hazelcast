@@ -41,6 +41,12 @@ public class NearCacheConfig {
 
     private boolean cacheLocalEntries = false;
 
+    private LocalUpdatePolicy localUpdatePolicy = LocalUpdatePolicy.INVALIDATE;
+
+    public enum LocalUpdatePolicy {
+        INVALIDATE, CACHE
+    }
+
     public NearCacheConfig(int timeToLiveSeconds, int maxSize, String evictionPolicy, int maxIdleSeconds, boolean invalidateOnChange, InMemoryFormat inMemoryFormat) {
         this.timeToLiveSeconds = timeToLiveSeconds;
         this.maxSize = maxSize;
@@ -59,6 +65,7 @@ public class NearCacheConfig {
         maxSize = config.getMaxSize();
         timeToLiveSeconds = config.getTimeToLiveSeconds();
         cacheLocalEntries = config.isCacheLocalEntries();
+        localUpdatePolicy = config.localUpdatePolicy;
     }
 
     public NearCacheConfigReadOnly getAsReadOnly() {
@@ -75,8 +82,9 @@ public class NearCacheConfig {
         return name;
     }
 
-    public void setName(String name) {
+    public NearCacheConfig setName(String name) {
         this.name = name;
+        return this;
     }
 
     public int getTimeToLiveSeconds() {
@@ -139,6 +147,15 @@ public class NearCacheConfig {
 
     public NearCacheConfig setCacheLocalEntries(boolean cacheLocalEntries) {
         this.cacheLocalEntries = cacheLocalEntries;
+        return this;
+    }
+
+    public LocalUpdatePolicy getLocalUpdatePolicy() {
+        return localUpdatePolicy;
+    }
+
+    public NearCacheConfig setLocalUpdatePolicy(LocalUpdatePolicy localUpdatePolicy) {
+        this.localUpdatePolicy = localUpdatePolicy;
         return this;
     }
 
