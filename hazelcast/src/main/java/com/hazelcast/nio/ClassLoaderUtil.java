@@ -17,9 +17,9 @@
 package com.hazelcast.nio;
 
 import com.hazelcast.util.ConcurrentReferenceHashMap;
-import com.hazelcast.util.ConcurrentReferenceHashMap.ReferenceType;
 import com.hazelcast.util.ValidationUtil;
 
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Constructor;
 import java.util.Collections;
 import java.util.HashMap;
@@ -35,13 +35,13 @@ public final class ClassLoaderUtil {
     public static final String HAZELCAST_BASE_PACKAGE = "com.hazelcast.";
     public static final String HAZELCAST_ARRAY = "[L" + HAZELCAST_BASE_PACKAGE;
 
-    private static final Map<String, Class> PRIMITIVE_CLASSES;
+    private static final Map<String, Class<?>> PRIMITIVE_CLASSES;
     private static final int MAX_PRIM_CLASSNAME_LENGTH = 7; // boolean.class.getName().length();
 
     private static final ClassCache CLASS_CACHE = new ClassCache();
 
     static {
-        final Map<String, Class> primitives = new HashMap<String, Class>(10, 1.0f);
+        final Map<String, Class<?>> primitives = new HashMap<String, Class<?>>(10, 1.0f);
         primitives.put("boolean", boolean.class);
         primitives.put("byte", byte.class);
         primitives.put("int", int.class);
@@ -54,13 +54,10 @@ public final class ClassLoaderUtil {
         PRIMITIVE_CLASSES = Collections.unmodifiableMap(primitives);
     }
 
-    private ClassLoaderUtil() {
-    }
-
     public static <T> T newInstance(ClassLoader classLoader, final String className)
             throws Exception {
         Class<?> klass = loadClass(classLoader, className);
-        return (T)newInstance(klass, classLoader, className);
+        return (T) newInstance(klass, classLoader, className);
     }
 
     public static <T> T newInstance(Class<T> klass, ClassLoader classLoader, String className)
@@ -77,7 +74,7 @@ public final class ClassLoaderUtil {
 
         ValidationUtil.isNotNull(className, "className");
         if (className.length() <= MAX_PRIM_CLASSNAME_LENGTH && Character.isLowerCase(className.charAt(0))) {
-            final Class primitiveClass = PRIMITIVE_CLASSES.get(className);
+            final Class<?> primitiveClass = PRIMITIVE_CLASSES.get(className);
             if (primitiveClass != null) {
                 return primitiveClass;
             }
@@ -87,20 +84,19 @@ public final class ClassLoaderUtil {
             theClassLoader = Thread.currentThread().getContextClassLoader();
         }
 
-        Class< ? > cachedClass = CLASS_CACHE.get(theClassLoader, className);
-        if (cachedClass != null)
-        {
-            return cachedClass;
-        }
-
         // First try to load it through the given classloader
         if (theClassLoader != null) {
+        	
+        	Class< ? > cachedClass = CLASS_CACHE.get(theClassLoader, className);
+            if (cachedClass != null) {
+                return cachedClass;
+            }
+             
             try {
                 final Class< ? > loadedClass = tryLoadClass(className, theClassLoader);
                 CLASS_CACHE.put(theClassLoader, className, loadedClass);
                 return loadedClass;
             } catch (ClassNotFoundException ignore) {
-
                 // Reset selected classloader and try with others
                 theClassLoader = null;
             }
@@ -114,10 +110,10 @@ public final class ClassLoaderUtil {
             theClassLoader = Thread.currentThread().getContextClassLoader();
         }
         if (theClassLoader != null) {
-            Class< ? > cachedClass2 = CLASS_CACHE.get(theClassLoader, className);
-            if (cachedClass2 != null)
-            {
-                return cachedClass2;
+        	
+        	Class< ? > cachedClass = CLASS_CACHE.get(theClassLoader, className);
+            if (cachedClass != null) {
+                return cachedClass;
             }
 
             final Class< ? > loadedClass = tryLoadClass(className, theClassLoader);
@@ -137,41 +133,49 @@ public final class ClassLoaderUtil {
         }
     }
 
-    public static boolean isInternalType(Class type) {
+    public static boolean isInternalType(Class<?> type) {
         return type.getClassLoader() == ClassLoaderUtil.class.getClassLoader() && type.getName()
                 .startsWith(HAZELCAST_BASE_PACKAGE);
     }
 
-    private static final class ClassCache {
-        private final ConcurrentMap<ClassLoader, ConcurrentMap<String, Class<?>>> cache;
+    private static class ClassCache {
+    	
+        private final ConcurrentMap<ClassLoader, ConcurrentMap<String, WeakReference<Class<?>>>> cache;
 
-        protected ClassCache() {
+        private ClassCache() {
             // Guess 16 classloaders to not waste to much memory (16 is default concurrency level)
-            cache = new ConcurrentReferenceHashMap<ClassLoader, ConcurrentMap<String, Class<?>>>(16,
-                            ReferenceType.SOFT, ReferenceType.SOFT);
+            cache = new ConcurrentReferenceHashMap<ClassLoader, ConcurrentMap<String, WeakReference<Class<?>>>>(16);
         }
 
-        protected <T> Class<?> put(ClassLoader classLoader, String className, Class<T> clazz) {
+        private <T> Class<T> put(ClassLoader classLoader, String className, Class<T> klass) {
             ClassLoader cl = classLoader == null ? ClassLoaderUtil.class.getClassLoader() : classLoader;
-            ConcurrentMap<String, Class<?>> innerCache = cache.get(cl);
+            ConcurrentMap<String, WeakReference<Class<?>>> innerCache = cache.get(cl);
             if (innerCache == null) {
                 // Let's guess a start of 100 classes per classloader
-                innerCache = new ConcurrentHashMap<String, Class<?>>(100);
-                ConcurrentMap<String, Class<?>> old = cache.putIfAbsent(cl, innerCache);
+                innerCache = new ConcurrentHashMap<String, WeakReference<Class<?>>>(100);
+                ConcurrentMap<String, WeakReference<Class<?>>> old = cache.putIfAbsent(cl, innerCache);
                 if (old != null) {
                     innerCache = old;
                 }
             }
-            innerCache.put(className, clazz);
-            return clazz;
+            innerCache.put(className, new WeakReference<Class<?>>(klass));
+            return klass;
         }
 
-        protected <T> Class<?> get(ClassLoader classLoader, String className) {
-            ConcurrentMap<String, Class<?>> innerCache = cache.get(classLoader);
+        public <T> Class<?> get(ClassLoader classLoader, String className) {
+            ConcurrentMap<String, WeakReference<Class<?>>> innerCache = cache.get(classLoader);
             if (innerCache == null) {
                 return null;
             }
-            return innerCache.get(className);
+            WeakReference<Class<?>> reference = innerCache.get(className);
+            Class<?> klass = reference == null ? null : reference.get();
+            if (reference != null && klass == null) {
+                innerCache.remove(className);
+            }
+            return (Class<T>) klass;
         }
+    }
+
+    private ClassLoaderUtil() {
     }
 }
